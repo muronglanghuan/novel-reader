@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自更新：只暴露 updates 目录下的 APK -->
+<paths>
+    <files-path name="updates" path="updates/" />
+</paths>

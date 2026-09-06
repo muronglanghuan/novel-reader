@@ -503,6 +503,33 @@ public final class Bridge {
         ensureTts();
     }
 
+    /** 手动检查更新（忽略限频）；结果以 Toast 反馈，新版自动后台下载并安装 */
+    @JavascriptInterface
+    public void checkForUpdate() {
+        UpdateChecker.check(appCtx, true, (tag, err) -> {
+            if (tag != null) {
+                // UpdateChecker 内部下载完成后会自动拉起安装页
+            } else if ("none".equals(err)) {
+                toast("已是最新版本（v" + currentVersionName() + "）");
+            } else if ("no-asset".equals(err)) {
+                toast("仓库中未找到可安装的正式版 APK");
+            } else if ("ok-skip".equals(err)) {
+                toast("刚刚已检查过，请稍后再试");
+            } else {
+                toast("检查更新失败（网络不可用？），请稍后重试");
+            }
+        });
+    }
+
+    private String currentVersionName() {
+        try {
+            return appCtx.getPackageManager()
+                    .getPackageInfo(appCtx.getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     /** 打开系统文字转语音设置页（引导用户检查/切换引擎） */
     @JavascriptInterface
     public void openTtsSettings() {

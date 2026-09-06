@@ -986,6 +986,11 @@ function bindUI() {
     B.openTtsSettings();
     closeDrawers();
   });
+  $('btn-check-update').addEventListener('click', () => {
+    if (isNative) { try { NovelBridge.checkForUpdate(); } catch (e) {} }
+    else B.toast('桌面调试版无更新通道');
+    closeDrawers();
+  });
 
   // 删除确认弹窗
   $('dlg-delete-cancel').addEventListener('click', closeDeleteDialog);

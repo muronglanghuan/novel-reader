@@ -125,6 +125,25 @@ public final class MainActivity extends Activity implements Bridge.Host {
         }
     }
 
+    // ---------- 自更新（启动后延迟静默检查一次） ----------
+
+    private boolean updateCheckedOnce;
+
+    private void maybeAutoCheckUpdate() {
+        if (updateCheckedOnce) return;
+        updateCheckedOnce = true;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            UpdateChecker.check(this, false, (tag, err) -> {
+                // 有新版：UpdateChecker 内部已自动后台下载并拉起安装页
+                if (tag != null) {
+                    android.widget.Toast.makeText(this,
+                            "发现新版本 v" + tag + "，正在后台下载更新…", android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
+        }, 2500);
+    }
+
     // ---------- 生命周期 ----------
 
     @Override
@@ -140,6 +159,7 @@ public final class MainActivity extends Activity implements Bridge.Host {
     protected void onResume() {
         super.onResume();
         // 未调用 wv.onPause()，这里无需 wv.onResume()（调了也无副作用）
+        maybeAutoCheckUpdate();
     }
 
     @Override
