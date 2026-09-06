@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- 朗读前台服务：后台/息屏持续朗读 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Android 11+（targetSdk>=30）包可见性：
          必须声明 TTS 引擎 intent，否则 getEngines() 恒为空、
          默认引擎绑定失败 → 误报“未安装任何语音引擎”。
@@ -71,6 +76,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 朗读前台服务(媒体播放类型, 后台/息屏保活) -->
+        <service
+            android:name=".ReadAloudService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- 自更新安装 APK 的 FileProvider -->
         <provider

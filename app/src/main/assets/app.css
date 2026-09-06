@@ -84,10 +84,6 @@ body { background: var(--bg); color: var(--fg); }
   position: relative; flex: 1; overflow-y: auto; overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  /* 关键：禁用浏览器滚动锚定。上方章节被 prune 移除时由代码精确补偿
-     scrollTop；若浏览器再按锚点自动补偿一次, 会双重位移导致视口
-     “被拽回”到旧位置(下滑跨章时跳回进度位置) */
-  overflow-anchor: none;
 }
 #content-holder {
   padding: calc(24px + env(safe-area-inset-top,0px)) 22px 55vh 22px;
@@ -112,6 +108,8 @@ mark.read-sent { background: var(--mark-bg); color: var(--mark-fg); border-radiu
 .bottombar { flex: none; display: block; background: var(--chrome-bg); z-index: 40;
   border-top: 1px solid var(--line); user-select: none; }
 .bb-row1 { display: flex; align-items: center; gap: 4px; padding: 8px 10px; }
+.bb-nav { display: flex; gap: 4px; padding: 0 10px 8px; }
+.bb-nav .bb-btn { flex: 1; padding: 6px 0; font-size: 12px; }
 .bb-row2 { display: flex; align-items: center; gap: 8px; padding: 2px 14px 8px; }
 .bb-btn {
   flex: 1; border: 1px solid var(--line); background: transparent; color: var(--chrome-fg);

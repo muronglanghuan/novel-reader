@@ -612,10 +612,49 @@ public final class Bridge {
         post(() -> { if (tts != null) tts.setRate((float) rate); });
     }
 
+    // ---------------- 朗读前台服务(后台/息屏保活) ----------------
+
+    /** 朗读开始时调用：拉起前台服务；title 变化时重复调用以刷新通知 */
+    @JavascriptInterface
+    public void ttsReadStarted(final String title) {
+        post(() -> {
+            // Android 13+ 通知权限(拒绝也不影响前台服务保活, 只影响通知展示)
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                try {
+                    if (activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        activity.requestPermissions(
+                                new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 6001);
+                    }
+                } catch (Throwable ignored) {}
+            }
+            try {
+                Intent i = new Intent(appCtx, ReadAloudService.class);
+                i.setAction(ReadAloudService.ACTION_START);
+                i.putExtra(ReadAloudService.EXTRA_TITLE,
+                        title == null ? "正在朗读…" : title);
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    appCtx.startForegroundService(i);
+                } else {
+                    appCtx.startService(i);
+                }
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    /** 朗读停止/结束时调用：关闭前台服务 */
+    @JavascriptInterface
+    public void ttsReadStopped() {
+        post(() -> {
+            try { appCtx.stopService(new Intent(appCtx, ReadAloudService.class)); } catch (Throwable ignored) {}
+        });
+    }
+
     // ---------------- 生命周期 ----------------
 
     public void destroy() {
         if (tts != null) tts.destroy();
         tts = null;
+        try { appCtx.stopService(new Intent(appCtx, ReadAloudService.class)); } catch (Throwable ignored) {}
     }
 }

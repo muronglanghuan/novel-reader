@@ -20,12 +20,25 @@ import androidx.webkit.WebViewAssetLoader;
  */
 public final class MainActivity extends Activity implements Bridge.Host {
 
+    public static final String ACTION_STOP_READING = "com.like.novelreader.STOP_READING";
+
     private static final int REQ_IMPORT = 4242;
     private static final int REQ_RESTORE = 4243;
 
     private WebView wv;
     private Bridge bridge;
     private WebViewAssetLoader assetLoader;
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // 通知栏「停止朗读」/ 点通知回 App
+        if (intent != null && ACTION_STOP_READING.equals(intent.getAction()) && wv != null) {
+            try {
+                wv.evaluateJavascript("window.stopTts&&stopTts(false);", null);
+            } catch (Throwable ignored) {}
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,7 +57,7 @@ public final class MainActivity extends Activity implements Bridge.Host {
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
-        s.setBlockNetworkLoads(true);        // 纯本地应用，禁网
+        s.setBlockNetworkLoads(true);        // 纯本地应用，禁网(自动更新走原生层)
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setUseWideViewPort(false);
         s.setLoadWithOverviewMode(false);
@@ -179,6 +192,7 @@ public final class MainActivity extends Activity implements Bridge.Host {
 
     @Override
     protected void onDestroy() {
+        stopService(new Intent(this, ReadAloudService.class));
         if (bridge != null) {
             bridge.destroy();
             if (wv != null) wv.removeJavascriptInterface("NovelBridge");

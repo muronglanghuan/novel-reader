@@ -162,6 +162,8 @@ const B = {
   ttsResume: () => (isNative ? NovelBridge.ttsResume() : Dev.ttsResume()),
   ttsSetRate: r => (isNative ? NovelBridge.ttsSetRate(r) : Dev.ttsSetRate(r)),
   keepScreenOn: b => (isNative ? NovelBridge.keepScreenOn(b) : Dev.keepScreenOn(b)),
+  ttsReadStarted: title => { if (isNative) { try { NovelBridge.ttsReadStarted(title || ''); } catch (e) {} } },
+  ttsReadStopped: () => { if (isNative) { try { NovelBridge.ttsReadStopped(); } catch (e) {} } },
   toast: m => (isNative ? NovelBridge.toast(m) : Dev.toast(m)),
 };
 
@@ -358,7 +360,8 @@ function prune() {
     if (rc.bottom > -viewH() * 1.2) continue;
     const h = s.el.offsetHeight || 0;
     if (h <= 0) continue;
-    R.body.scrollTop -= h;      // 补偿：内容上移高度，视觉无跳
+    // 视觉稳定交给浏览器原生滚动锚定(overflow-anchor), 手写补偿会在
+    // 跳章等异步布局场景与锚定竞态, 导致视口被多拽一整章
     s.el.remove();
     R.loaded.delete(s.idx);
   }
@@ -764,7 +767,14 @@ async function listenFrom(target) {
   B.keepScreenOn(true);
   setTtsUi();
   highlightParagraph(parEl, 0);
+  readNotifyTitle();   // 前台服务保活: 后台/息屏持续朗读
   speakCurrent(gen);
+}
+
+/* 刷新通知栏章节标题(前台朗读服务) */
+function readNotifyTitle() {
+  if (!Tts.playing || !Tts.pos || !R.book || !R.book.chapters || !R.book.chapters[Tts.pos.ch]) return;
+  B.ttsReadStarted(String(R.book.chapters[Tts.pos.ch].t));
 }
 
 function setTtsUi() {
@@ -831,6 +841,7 @@ async function advanceParagraph(gen) {
       if (ch !== R.curCh) { R.curCh = ch; syncChromeTitle(); ensureWindow(ch); }
       Tts.pos = { ch, parEl: r.paras[parIdx], sentIdx: 0 };
       highlightParagraph(r.paras[parIdx], 0);
+      readNotifyTitle();
       speakCurrent(gen);
       return;
     }
@@ -846,6 +857,7 @@ async function advanceParagraph(gen) {
     R.body.scrollTop = Math.max(0, paras[0].offsetTop - PAD_TOP);
     Tts.pos = { ch, parEl: paras[0], sentIdx: 0 };
     highlightParagraph(paras[0], 0);
+    readNotifyTitle();
     speakCurrent(gen);
     return;
   }
@@ -884,6 +896,7 @@ function stopTts(keepUi) {
   Tts.playing = false; Tts.paused = false;
   Tts.pos = null;
   B.ttsStop();
+  B.ttsReadStopped();      // 朗读结束: 关闭前台服务
   B.keepScreenOn(Auto.on);
   clearHighlights();
   if (!keepUi) setTtsUi();
@@ -986,6 +999,15 @@ function bindUI() {
     B.openTtsSettings();
     closeDrawers();
   });
+  const goRelChapter = d => {
+    stopTts(false);
+    if (!R.book) return;
+    const n = R.curCh + d;
+    if (n < 0 || n >= R.book.total) { B.toast(d < 0 ? '已是第一章' : '已是最后一章'); return; }
+    gotoChapter(n);
+  };
+  $('btn-prev-ch').addEventListener('click', () => goRelChapter(-1));
+  $('btn-next-ch').addEventListener('click', () => goRelChapter(1));
   $('btn-check-update').addEventListener('click', () => {
     if (isNative) { try { NovelBridge.checkForUpdate(); } catch (e) {} }
     else B.toast('桌面调试版无更新通道');
