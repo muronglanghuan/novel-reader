@@ -431,14 +431,28 @@ function alignToPageStart(opts) {
  * 滚动跟踪 / 进度保存
  * =================================================================== */
 let lastTick = 0;
+let scrollPending = false;
+let jumpSettleTimer = 0;
 function onScroll() {
   if (!R.book) return;
   const now = Date.now();
-  if (now - lastTick < 90) return;
+  if (now - lastTick < 90) {
+    // 节流期间不丢事件：排一个尾随处理，保证“最后一次滚动”一定被同步
+    // （否则跳章/朗读跨章后 curCh 停在旧章、标题与内容错位）
+    if (!scrollPending) {
+      scrollPending = true;
+      setTimeout(() => { scrollPending = false; onScroll(); }, 110);
+    }
+    return;
+  }
   lastTick = now;
   const top = topParagraph();
   if (top && top.p) {
-    if (top.ch !== R.curCh) {
+    // 朗读中禁止 curCh 回退到朗读位置之前：
+    // 跨章瞬间的旧滚动事件(含尾随处理)会把标题/窗口拽回上一章
+    const reading = Tts.playing && Tts.pos;
+    const wouldRewind = reading && top.ch < Tts.pos.ch && R.curCh > top.ch;
+    if (!wouldRewind && top.ch !== R.curCh) {
       R.curCh = top.ch;
       syncChromeTitle();
       ensureWindow(R.curCh);
@@ -503,13 +517,31 @@ async function jumpToChapter(ch, par) {
       .filter(i => i >= 0 && i < R.book.total && !R.loaded.has(i));
   await Promise.all(neighbors.map(i => fetchChapter(i).catch(() => null)));
   prune();
-  await sleep(1);      // 等布局
+  // 等两帧：新插入章节的布局(几何/滚动高度)在 rAF 后才可靠，否则远距跳转
+  // 会按旧几何滚动、被 scrollHeight 截断落到错误位置
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   const target = rec.paras[par] || rec.paras[0];
   if (target) R.body.scrollTop = Math.max(0, target.offsetTop - PAD_TOP);
   else R.body.scrollTop = Math.max(0, rec.el.offsetTop - PAD_TOP);
   closeDrawers();
   if (R.saveTimer) clearTimeout(R.saveTimer);
   saveNow(null);
+  // 落定自检：连续跳转时滚动尾事件可能与本次跳转交错，稍后按真实视口复核一次
+  if (jumpSettleTimer) clearTimeout(jumpSettleTimer);
+  jumpSettleTimer = setTimeout(() => {
+    const t = topParagraph();
+    if (t && t.ch != null && t.ch !== R.curCh) {
+      R.curCh = t.ch;
+      syncChromeTitle();
+      ensureWindow(R.curCh);
+    }
+    // 视口仍未到位(远距跳转偶发被旧布局干扰)→ 按目标章重新量偏移补一次滚动
+    if (t && Math.abs(t.ch - ch) > 1) {
+      const again = R.loaded.get(ch);
+      const el = again && (again.paras[par] || again.paras[0]) ? (again.paras[par] || again.paras[0]) : (again ? again.el : null);
+      if (el) R.body.scrollTop = Math.max(0, el.offsetTop - PAD_TOP);
+    }
+  }, 300);
 }
 function gotoChapter(ch) { jumpToChapter(ch, 0).catch(() => {}); }
 
@@ -714,10 +746,14 @@ async function listenFrom(target) {
     return;
   }
   let rec = R.loaded.get(target.ch);
-  if (!rec) rec = await chapterParas(target.ch);
+  if (!rec) {
+    rec = await fetchChapter(target.ch).catch(() => null);
+    if (rec) rec = R.loaded.get(target.ch);
+  }
   if (!rec) { B.toast('章节尚未就绪'); return; }
   const parEl = target.p || rec.paras[target.idx] || rec.paras[0];
   if (!parEl) { B.toast('本章没有正文段落'); return; }
+  if (R.curCh !== target.ch) { R.curCh = target.ch; syncChromeTitle(); ensureWindow(target.ch); }
   if (parEl.getBoundingClientRect().top < -viewH() || parEl.getBoundingClientRect().top > viewH() * 1.2) {
     R.body.scrollTop = Math.max(0, parEl.offsetTop - PAD_TOP);
   }
@@ -792,6 +828,7 @@ async function advanceParagraph(gen) {
   while (ch < R.book.total) {
     let r = R.loaded.get(ch);
     if (r && parIdx < r.paras.length) {
+      if (ch !== R.curCh) { R.curCh = ch; syncChromeTitle(); ensureWindow(ch); }
       Tts.pos = { ch, parEl: r.paras[parIdx], sentIdx: 0 };
       highlightParagraph(r.paras[parIdx], 0);
       speakCurrent(gen);
@@ -799,16 +836,18 @@ async function advanceParagraph(gen) {
     }
     ch++;
     parIdx = 0;
-    r = await chapterParas(ch).catch(() => null);
-    if (!r) break;
-    if (r.paras.length) {
-      R.body.scrollTop = Math.max(0, r.paras[0].offsetTop - PAD_TOP);
-      Tts.pos = { ch, parEl: r.paras[0], sentIdx: 0 };
-      syncChromeTitle();
-      highlightParagraph(r.paras[0], 0);
-      speakCurrent(gen);
-      return;
-    }
+    if (ch >= R.book.total) break;
+    // 注意: chapterParas 返回的是段落数组(不是章节记录), 不能当 rec 用
+    const paras = await chapterParas(ch).catch(() => null);
+    if (!paras || !paras.length) continue;   // 空章/加载失败 → 试下一章(不中断朗读)
+    // 先同步当前章并裁剪远上方旧章, 再测量偏移去滚动：
+    // 顺序颠倒时, 旧章 prune 的滚动补偿会与本次跳转竞争, 导致视口停在旧位置
+    if (R.curCh !== ch) { R.curCh = ch; syncChromeTitle(); ensureWindow(ch); }
+    R.body.scrollTop = Math.max(0, paras[0].offsetTop - PAD_TOP);
+    Tts.pos = { ch, parEl: paras[0], sentIdx: 0 };
+    highlightParagraph(paras[0], 0);
+    speakCurrent(gen);
+    return;
   }
   B.toast('已到全书末尾');
   stopTts(false);

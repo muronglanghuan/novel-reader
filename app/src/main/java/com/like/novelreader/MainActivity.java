@@ -130,14 +130,16 @@ public final class MainActivity extends Activity implements Bridge.Host {
     @Override
     protected void onPause() {
         super.onPause();
-        if (wv != null) wv.onPause();
-        // 不暂停 JS 定时器：朗读链由 JS 驱动，转后台时继续（无前台服务时引擎可持续一句句读）
+        // 注意：这里不调用 wv.onPause() —— WebView.onPause 会暂停 JS 定时器，
+        // 而朗读链(逐句推进的 watchdog/章节预载/滚动事件)全靠 JS 定时器驱动；
+        // 转后台/锁屏时暂停定时器会导致朗读在章节末尾悄悄停止、唤醒后乱跳。
+        // 不暂停 WebView：朗读链在后台继续由事件驱动(引擎一句句回调推进)。
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (wv != null) wv.onResume();
+        // 未调用 wv.onPause()，这里无需 wv.onResume()（调了也无副作用）
     }
 
     @Override
