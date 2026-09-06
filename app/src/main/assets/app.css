@@ -107,7 +107,10 @@ mark.read-sent { background: var(--mark-bg); color: var(--mark-fg); border-radiu
 #reader-bottombar { bottom: 0; padding-bottom: calc(env(safe-area-inset-bottom,0px) + 8px); }
 .bottombar { flex: none; display: block; background: var(--chrome-bg); z-index: 40;
   border-top: 1px solid var(--line); user-select: none; }
-.bb-row1 { display: flex; align-items: center; gap: 4px; padding: 8px 10px; }
+.bb-row1 { display: flex; align-items: center; gap: 4px; padding: 8px 10px 4px; }
+.bb-sub { display: flex; gap: 4px; padding: 0 10px 8px; }
+.bb-sub .bb-btn { flex: 1; }
+.timer-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 .bb-row2 { display: flex; align-items: center; gap: 8px; padding: 2px 14px 8px; }
 .bb-btn {
   flex: 1; border: 1px solid var(--line); background: transparent; color: var(--chrome-fg);

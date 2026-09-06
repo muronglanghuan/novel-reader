@@ -52,6 +52,14 @@ public final class MainActivity extends Activity implements Bridge.Host {
         wv = new WebView(this);
         setContentView(wv);
 
+        // 朗读链跑在 WebView 渲染进程里：切后台/息屏时避免渲染进程被降级/冻结
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            try {
+                wv.setRendererPriorityPolicy(
+                        android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, true);
+            } catch (Throwable ignored) {}
+        }
+
         WebSettings s = wv.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);

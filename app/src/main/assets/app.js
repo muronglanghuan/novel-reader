@@ -663,6 +663,8 @@ const Tts = {
   gen: 0,                    // 代次
   lastId: '',                // 当前句 utterance id
   watchdog: 0,
+  timerAt: 0, timerMin: 0,        // 定时停止(毫秒时间戳/分钟)
+  pendingTimerAt: 0, pendingTimerMin: 0,
   ttsOk: false, reason: '',
 };
 
@@ -765,6 +767,11 @@ async function listenFrom(target) {
   const gen = Tts.gen;
   Tts.pos = { ch: target.ch, parEl, sentIdx: 0 };
   B.keepScreenOn(true);
+  if (Tts.pendingTimerAt) {
+    Tts.timerAt = Tts.pendingTimerAt;
+    Tts.timerMin = Tts.pendingTimerMin || 30;
+    Tts.pendingTimerAt = 0; Tts.pendingTimerMin = 0;
+  }
   setTtsUi();
   highlightParagraph(parEl, 0);
   readNotifyTitle();   // 前台服务保活: 后台/息屏持续朗读
@@ -781,6 +788,14 @@ function setTtsUi() {
   const b = $('btn-tts-play');
   // 两态：开始朗读 ↔ 停止（停止/暂停合并）
   b.textContent = Tts.playing ? '停止' : '开始朗读';
+  const tm = $('btn-timer');
+  if (Tts.timerAt) {
+    tm.textContent = '定时 ' + (Tts.timerMin || 1) + ' 分钟';
+    tm.classList.add('bb-accent');
+  } else {
+    tm.textContent = '定时停止';
+    tm.classList.remove('bb-accent');
+  }
   $('tts-controls').hidden = !Tts.playing;
   if (Tts.playing) {
     $('tts-status').textContent = '朗读中'
@@ -793,6 +808,11 @@ function setTtsUi() {
 
 function speakCurrent(gen) {
   if (gen !== Tts.gen || !Tts.playing || Tts.paused) return;
+  if (Tts.timerAt && Date.now() >= Tts.timerAt) {
+    B.toast('定时朗读结束');
+    stopTts(false);
+    return;
+  }
   const pos = Tts.pos;
   const sents = splitSentences(pos.parEl._raw || '');
   if (!sents.length || pos.sentIdx >= sents.length) { advanceParagraph(gen); return; }
@@ -892,6 +912,8 @@ function stopTts(keepUi) {
   if (Tts.watchdog) clearTimeout(Tts.watchdog);
   Tts.playing = false; Tts.paused = false;
   Tts.pos = null;
+  // 只清除已生效的定时；pending(刚设定、等待开读兑现)须保留给 listenFrom
+  Tts.timerAt = 0; Tts.timerMin = 0;
   B.ttsStop();
   B.ttsReadStopped();      // 朗读结束: 关闭前台服务
   B.keepScreenOn(Auto.on);
@@ -989,6 +1011,40 @@ function bindUI() {
     B.openTtsSettings();
     closeDrawers();
   });
+  const closeTimerDialog = () => { $('dlg-timer').hidden = true; };
+  const openTimerDialog = () => {
+    const box = $('dlg-timer-options');
+    box.textContent = '';
+    const opts = [];
+    if (Tts.timerAt) opts.push(['取消定时', () => { Tts.timerAt = 0; Tts.timerMin = 0; closeTimerDialog(); setTtsUi(); B.toast('已取消定时停止'); }]);
+    [15, 30, 45, 60].forEach(m => opts.push([m + ' 分钟后停止', () => armTimer(m)]));
+    opts.forEach(([label, fn]) => {
+      const b = document.createElement('button');
+      b.className = 'bb-btn';
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      box.appendChild(b);
+    });
+    $('dlg-timer').hidden = false;
+  };
+  const armTimer = m => {
+    closeTimerDialog();
+    const at = Date.now() + m * 60000;
+    B.toast('定时 ' + m + ' 分钟后停止朗读（息屏持续读）');
+    if (!Tts.playing) {
+      // 待真正开读后生效(listenFrom 里兑现)
+      Tts.pendingTimerAt = at;
+      Tts.pendingTimerMin = m;
+      toggleTtsPlay();
+    } else {
+      Tts.timerAt = at;
+      Tts.timerMin = m;
+      setTtsUi();
+    }
+  };
+  $('btn-timer').addEventListener('click', openTimerDialog);
+  $('dlg-timer-cancel').addEventListener('click', closeTimerDialog);
+  $('dlg-timer').addEventListener('click', e => { if (e.target === $('dlg-timer')) closeTimerDialog(); });
   const goRelChapter = d => {
     stopTts(false);
     if (!R.book) return;

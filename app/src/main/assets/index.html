@@ -49,10 +49,13 @@
 
   <footer id="reader-bottombar" class="bottombar reader-chrome" hidden>
     <div class="bb-row1">
-      <button id="btn-shelf-back" class="bb-btn bb-sm">书架</button>
       <button id="btn-prev-ch" class="bb-btn bb-mid">‹ 上一章</button>
       <button id="btn-tts-play" class="bb-btn bb-primary bb-lg">开始朗读</button>
+      <button id="btn-timer" class="bb-btn bb-lg">定时停止</button>
       <button id="btn-next-ch" class="bb-btn bb-mid">下一章 ›</button>
+    </div>
+    <div class="bb-sub">
+      <button id="btn-shelf-back" class="bb-btn bb-sm">书架</button>
       <button id="btn-auto" class="bb-btn bb-sm">自动卷轴</button>
     </div>
     <div id="auto-controls" class="bb-row2" hidden>
@@ -105,6 +108,17 @@
   </div>
 </aside>
 <div id="scrim" class="scrim" hidden></div>
+
+<!-- 定时停止选择弹窗 -->
+<div id="dlg-timer" class="modal-mask" hidden>
+  <div class="modal-box">
+    <div class="modal-title">定时停止朗读</div>
+    <div id="dlg-timer-options" class="timer-options"></div>
+    <div class="modal-actions">
+      <button id="dlg-timer-cancel" class="bb-btn">取消</button>
+    </div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>

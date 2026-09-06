@@ -9,14 +9,15 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 
 /**
- * 朗读前台服务：朗读期间以媒体播放前台服务保活。
+ * 朗读前台服务：朗读期间以媒体播放前台服务保活 + 部分唤醒锁。
  * 没有它，手机息屏/切后台一段时间后进程会被系统冻结（Doze/厂商省电），
  * TTS 回调无法送达 → 朗读悄悄停止；回到前台才续读。
- * 前台服务使进程在后台/息屏期间保持运行，朗读可持续到手动停止。
+ * 前台服务 + 唤醒锁保证息屏期间 CPU 保持可用，朗读持续到手动/定时停止。
  */
 public final class ReadAloudService extends Service {
 
@@ -26,6 +27,7 @@ public final class ReadAloudService extends Service {
 
     private static final String CHANNEL_ID = "reading";
     private static final int NOTIF_ID = 7;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -38,8 +40,35 @@ public final class ReadAloudService extends Service {
         // ACTION_START（可重复调用刷新标题）
         String title = intent.getStringExtra(EXTRA_TITLE);
         if (title == null || title.isEmpty()) title = "正在朗读…";
+        acquireWakeLock();
         startForegroundInternal(title);
         return START_NOT_STICKY;
+    }
+
+    /** 部分唤醒锁：息屏期间 CPU 不睡，朗读链(引擎回调→下一句)持续运转 */
+    private void acquireWakeLock() {
+        try {
+            if (wakeLock == null || !wakeLock.isHeld()) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                        "novelreader:reading");
+                wakeLock.setReferenceCounted(false);
+                wakeLock.acquire();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Throwable ignored) {}
+        wakeLock = null;
+    }
+
+    @Override
+    public void onDestroy() {
+        releaseWakeLock();
+        super.onDestroy();
     }
 
     private void startForegroundInternal(String title) {
