@@ -108,8 +108,6 @@ mark.read-sent { background: var(--mark-bg); color: var(--mark-fg); border-radiu
 .bottombar { flex: none; display: block; background: var(--chrome-bg); z-index: 40;
   border-top: 1px solid var(--line); user-select: none; }
 .bb-row1 { display: flex; align-items: center; gap: 4px; padding: 8px 10px; }
-.bb-nav { display: flex; gap: 4px; padding: 0 10px 8px; }
-.bb-nav .bb-btn { flex: 1; padding: 6px 0; font-size: 12px; }
 .bb-row2 { display: flex; align-items: center; gap: 8px; padding: 2px 14px 8px; }
 .bb-btn {
   flex: 1; border: 1px solid var(--line); background: transparent; color: var(--chrome-fg);
@@ -117,6 +115,10 @@ mark.read-sent { background: var(--mark-bg); color: var(--mark-fg); border-radiu
 }
 .bb-btn:active { background: var(--line); }
 .bb-primary { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+/* 尺寸层级: 朗读(主键,大) > 上/下一章(中) > 其他(小) */
+.bb-lg { flex: 1.55; font-size: 15px; padding: 11px 0; }
+.bb-mid { flex: 1.2; }
+.bb-sm { flex: .85; font-size: 12px; padding: 6px 0; }
 .bb-accent { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
 .bb-label { font-size: 12px; color: var(--chrome-fg); opacity: .85; white-space: nowrap; }
 .bb-val { font-size: 12px; color: var(--accent); min-width: 52px; white-space: nowrap; text-align: right;}

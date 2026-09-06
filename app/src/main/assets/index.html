@@ -13,6 +13,7 @@
 <section id="screen-shelf" class="screen" hidden>
   <header class="topbar">
     <div class="tb-title">书架</div>
+    <button id="btn-settings-shelf" class="tb-btn">设置</button>
     <button id="btn-restore" class="tb-btn">恢复进度</button>
     <button id="btn-import" class="tb-btn">＋ 导入小说</button>
   </header>
@@ -48,14 +49,11 @@
 
   <footer id="reader-bottombar" class="bottombar reader-chrome" hidden>
     <div class="bb-row1">
-      <button id="btn-shelf-back" class="bb-btn">书架</button>
-      <button id="btn-tts-play" class="bb-btn bb-primary">开始朗读</button>
-      <button id="btn-tts-stop" class="bb-btn">停止</button>
-      <button id="btn-auto" class="bb-btn">自动卷轴</button>
-    </div>
-    <div class="bb-nav">
-      <button id="btn-prev-ch" class="bb-btn">‹ 上一章</button>
-      <button id="btn-next-ch" class="bb-btn">下一章 ›</button>
+      <button id="btn-shelf-back" class="bb-btn bb-sm">书架</button>
+      <button id="btn-prev-ch" class="bb-btn bb-mid">‹ 上一章</button>
+      <button id="btn-tts-play" class="bb-btn bb-primary bb-lg">开始朗读</button>
+      <button id="btn-next-ch" class="bb-btn bb-mid">下一章 ›</button>
+      <button id="btn-auto" class="bb-btn bb-sm">自动卷轴</button>
     </div>
     <div id="auto-controls" class="bb-row2" hidden>
       <span class="bb-label">卷轴速度</span>
@@ -79,34 +77,34 @@
     <div id="toc-list" class="toc-list"></div>
   </aside>
 
-  <!-- 设置面板 -->
-  <aside id="drawer-settings" class="drawer drawer-right" hidden>
-    <div class="drawer-head">
-      <span>阅读设置</span>
-      <button id="btn-settings-close" class="tb-btn">✕</button>
-    </div>
-    <div class="set-group">
-      <div class="set-row"><span class="bb-label">字号</span><input id="set-font" type="range" min="15" max="34" step="1"><span id="set-font-val" class="bb-val"></span></div>
-      <div class="set-row"><span class="bb-label">行距</span><input id="set-lineh" type="range" min="1.3" max="2.6" step="0.1"><span id="set-lineh-val" class="bb-val"></span></div>
-      <div class="set-row"><span class="bb-label">主题</span>
-        <span class="theme-btns">
-          <button data-theme="day" class="theme-btn">白天</button>
-          <button data-theme="sepia" class="theme-btn">护眼</button>
-          <button data-theme="night" class="theme-btn">夜间</button>
-        </span>
-      </div>
-      <div class="set-row"><span class="bb-label">界面说明</span><span class="bb-status">单击正文显示/隐藏工具条；「开始朗读」「自动卷轴」都会自动从当前页第一个完整段落的段首开始，无需手动对齐。</span></div>
-      <div class="set-row"><span class="bb-label">朗读没声音？</span>
-        <button id="btn-tts-settings" class="bb-btn">打开系统语音设置</button>
-      </div>
-      <div class="set-row"><span class="bb-label">应用更新</span>
-        <button id="btn-check-update" class="bb-btn">检查更新</button>
-      </div>
-    </div>
-  </aside>
-
-  <div id="scrim" class="scrim" hidden></div>
 </section>
+
+<!-- 全局设置抽屉(书架/阅读页共用)与遮罩 -->
+<aside id="drawer-settings" class="drawer drawer-right" hidden>
+  <div class="drawer-head">
+    <span>阅读设置</span>
+    <button id="btn-settings-close" class="tb-btn">✕</button>
+  </div>
+  <div class="set-group">
+    <div class="set-row"><span class="bb-label">字号</span><input id="set-font" type="range" min="15" max="34" step="1"><span id="set-font-val" class="bb-val"></span></div>
+    <div class="set-row"><span class="bb-label">行距</span><input id="set-lineh" type="range" min="1.3" max="2.6" step="0.1"><span id="set-lineh-val" class="bb-val"></span></div>
+    <div class="set-row"><span class="bb-label">主题</span>
+      <span class="theme-btns">
+        <button data-theme="day" class="theme-btn">白天</button>
+        <button data-theme="sepia" class="theme-btn">护眼</button>
+        <button data-theme="night" class="theme-btn">夜间</button>
+      </span>
+    </div>
+    <div class="set-row"><span class="bb-label">界面说明</span><span class="bb-status">单击正文显示/隐藏工具条；「开始朗读」「自动卷轴」都会自动从当前页第一个完整段落的段首开始，无需手动对齐。</span></div>
+    <div class="set-row"><span class="bb-label">朗读没声音？</span>
+      <button id="btn-tts-settings" class="bb-btn">打开系统语音设置</button>
+    </div>
+    <div class="set-row"><span class="bb-label">应用更新</span>
+      <button id="btn-check-update" class="bb-btn">检查更新</button>
+    </div>
+  </div>
+</aside>
+<div id="scrim" class="scrim" hidden></div>
 
 <script src="app.js"></script>
 </body>

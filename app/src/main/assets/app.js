@@ -779,19 +779,16 @@ function readNotifyTitle() {
 
 function setTtsUi() {
   const b = $('btn-tts-play');
+  // 两态：开始朗读 ↔ 停止（停止/暂停合并）
+  b.textContent = Tts.playing ? '停止' : '开始朗读';
+  $('tts-controls').hidden = !Tts.playing;
   if (Tts.playing) {
-    b.textContent = Tts.paused ? '继续' : '暂停';
-    $('btn-tts-stop').hidden = false;
-    $('tts-controls').hidden = false;
-    $('tts-status').textContent = (Tts.paused ? '已暂停' : '朗读中')
+    $('tts-status').textContent = '朗读中'
         + (Tts.pos && R.book ? ' · ' + R.book.chapters[Tts.pos.ch].t : '');
-  } else {
-    b.textContent = '开始朗读';
-    $('btn-tts-stop').hidden = true;
-    $('tts-controls').hidden = true;
+    const rate = $('tts-rate');
+    rate.value = Settings.cur.rate;
+    $('tts-rate-val').textContent = Settings.cur.rate.toFixed(2) + '×';
   }
-  const rate = $('tts-rate');
-  if (Tts.playing) { rate.value = Settings.cur.rate; $('tts-rate-val').textContent = Settings.cur.rate.toFixed(2) + '×'; }
 }
 
 function speakCurrent(gen) {
@@ -912,19 +909,8 @@ function toggleTtsPlay() {
       if (ps && ps.length) listenFrom({ ch: R.curCh, p: ps[0] });
       else B.toast('暂无可朗读内容');
     }
-  } else if (Tts.paused) {
-    // 继续：换新代次重读当前句（兼容无 pause 的引擎；旧回调全部作废）
-    Tts.paused = false;
-    Tts.gen++;
-    const gen = Tts.gen;
-    B.ttsStop();
-    setTtsUi();
-    speakCurrent(gen);
   } else {
-    Tts.paused = true;
-    B.ttsPause();
-    if (Tts.watchdog) clearTimeout(Tts.watchdog);
-    setTtsUi();
+    stopTts(false);   // 播放中再点 = 停止
   }
 }
 
@@ -987,13 +973,17 @@ function bindUI() {
 
   $('btn-toc').addEventListener('click', () => openDrawer('toc'));
   $('btn-toc-close').addEventListener('click', () => closeDrawers());
-  $('btn-settings').addEventListener('click', () => openDrawer('settings'));
+  const bindSettingsBtn = id => {
+    const el = $(id);
+    if (el) el.addEventListener('click', () => openDrawer('settings'));
+  };
+  bindSettingsBtn('btn-settings');          // 阅读器顶栏
+  bindSettingsBtn('btn-settings-shelf');    // 书架顶栏
   $('btn-settings-close').addEventListener('click', () => closeDrawers());
   $('btn-shelf-back').addEventListener('click', exitReader);
   $('scrim').addEventListener('click', () => closeDrawers());
 
   $('btn-tts-play').addEventListener('click', toggleTtsPlay);
-  $('btn-tts-stop').addEventListener('click', () => stopTts(false));
   $('btn-auto').addEventListener('click', toggleAuto);
   $('btn-tts-settings').addEventListener('click', () => {
     B.openTtsSettings();
