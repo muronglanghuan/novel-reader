@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#101318">
+<title>小说有声阅读</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ================= 书架 ================= -->
+<section id="screen-shelf" class="screen" hidden>
+  <header class="topbar">
+    <div class="tb-title">书架</div>
+    <button id="btn-restore" class="tb-btn">恢复进度</button>
+    <button id="btn-import" class="tb-btn">＋ 导入小说</button>
+  </header>
+  <div id="book-list" class="book-list"></div>
+  <div id="shelf-hint" class="shelf-hint">从手机导入 txt 小说后可在此阅读；文件仅保存在本机。</div>
+
+  <!-- 删除确认弹窗 -->
+  <div id="dlg-delete" class="modal-mask" hidden>
+    <div class="modal-box">
+      <div class="modal-title" id="dlg-delete-title">删除小说？</div>
+      <div class="modal-text" id="dlg-delete-text"></div>
+      <div class="modal-actions">
+        <button id="dlg-delete-cancel" class="bb-btn">取消</button>
+        <button id="dlg-delete-ok" class="bb-btn bb-danger">删除</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 阅读器 ================= -->
+<section id="screen-reader" class="screen" hidden>
+  <header id="reader-topbar" class="topbar reader-chrome" hidden>
+    <button id="btn-toc" class="tb-btn">目录</button>
+    <div id="reader-title" class="tb-title tb-clamp">　</div>
+    <button id="btn-settings" class="tb-btn">设置</button>
+  </header>
+
+  <main id="reader-body">
+    <div id="content-holder"></div>
+  </main>
+
+  <div id="tts-pill" class="tts-pill" hidden><span id="pill-text">朗读中</span></div>
+
+  <footer id="reader-bottombar" class="bottombar reader-chrome" hidden>
+    <div class="bb-row1">
+      <button id="btn-shelf-back" class="bb-btn">书架</button>
+      <button id="btn-tts-play" class="bb-btn bb-primary">开始朗读</button>
+      <button id="btn-tts-stop" class="bb-btn">停止</button>
+      <button id="btn-auto" class="bb-btn">自动卷轴</button>
+    </div>
+    <div id="auto-controls" class="bb-row2" hidden>
+      <span class="bb-label">卷轴速度</span>
+      <input id="auto-speed" type="range" min="80" max="900" step="10">
+      <span id="auto-speed-val" class="bb-val">300字/分</span>
+    </div>
+    <div id="tts-controls" class="bb-row2" hidden>
+      <span id="tts-status" class="bb-status">…</span>
+      <span class="bb-label">语速</span>
+      <input id="tts-rate" type="range" min="0.5" max="2.0" step="0.05">
+      <span id="tts-rate-val" class="bb-val">1.0×</span>
+    </div>
+  </footer>
+
+  <!-- 目录抽屉 -->
+  <aside id="drawer-toc" class="drawer drawer-left" hidden>
+    <div class="drawer-head">
+      <span>目录</span>
+      <button id="btn-toc-close" class="tb-btn">✕</button>
+    </div>
+    <div id="toc-list" class="toc-list"></div>
+  </aside>
+
+  <!-- 设置面板 -->
+  <aside id="drawer-settings" class="drawer drawer-right" hidden>
+    <div class="drawer-head">
+      <span>阅读设置</span>
+      <button id="btn-settings-close" class="tb-btn">✕</button>
+    </div>
+    <div class="set-group">
+      <div class="set-row"><span class="bb-label">字号</span><input id="set-font" type="range" min="15" max="34" step="1"><span id="set-font-val" class="bb-val"></span></div>
+      <div class="set-row"><span class="bb-label">行距</span><input id="set-lineh" type="range" min="1.3" max="2.6" step="0.1"><span id="set-lineh-val" class="bb-val"></span></div>
+      <div class="set-row"><span class="bb-label">主题</span>
+        <span class="theme-btns">
+          <button data-theme="day" class="theme-btn">白天</button>
+          <button data-theme="sepia" class="theme-btn">护眼</button>
+          <button data-theme="night" class="theme-btn">夜间</button>
+        </span>
+      </div>
+      <div class="set-row"><span class="bb-label">界面说明</span><span class="bb-status">单击正文显示/隐藏工具条；「开始朗读」「自动卷轴」都会自动从当前页第一个完整段落的段首开始，无需手动对齐。</span></div>
+      <div class="set-row"><span class="bb-label">朗读没声音？</span>
+        <button id="btn-tts-settings" class="bb-btn">打开系统语音设置</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="scrim" class="scrim" hidden></div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

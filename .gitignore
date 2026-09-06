@@ -1,0 +1,26 @@
+# ---- Android / Gradle ----
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ---- 签名与密钥(绝不能上传) ----
+keystores/
+keystores.properties
+*.keystore
+*.jks
+
+# ---- 发布产物 / 本地测试素材 ----
+dist/
+shots/
+*.apk
+
+# ---- 临时与杂项 ----
+*.log
+.DS_Store
+Thumbs.db

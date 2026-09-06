@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ 备份规则：云备份只带进度/设置(SharedPreferences，体积小)；
+     设备迁移额外包含用户导入的书文件(files/imports)，换机完整还原 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="." />
+        <include domain="file" path="files/imports/" />
+    </device-transfer>
+</data-extraction-rules>

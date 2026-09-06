@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 11+（targetSdk>=30）包可见性：
+         必须声明 TTS 引擎 intent，否则 getEngines() 恒为空、
+         默认引擎绑定失败 → 误报“未安装任何语音引擎”。
+         <intent> 覆盖按标准 action 注册的引擎；下面 <package> 把国内
+         常见机型/无障碍套件的内置引擎也显式放行（这类引擎常由 ROM
+         预置或只按包名注册，intent 查询可能查不到）。
+         新增引擎只需在这里补一行 <package>，无需改代码。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <package android:name="com.google.android.tts" />          <!-- Google 文本转语音 -->
+        <package android:name="com.svox.pico" />                   <!-- AOSP Pico -->
+        <package android:name="com.iflytek.speechcloud" />         <!-- 讯飞语记/讯飞语音 -->
+        <package android:name="com.iflytek.tts" />                 <!-- 讯飞 TTS -->
+        <package android:name="com.iflytek.speechsuite" />
+        <package android:name="com.microsoft.translator" />        <!-- 微软翻译(含TTS) -->
+        <package android:name="com.xiaomi.mibrain.speech" />       <!-- 小米语音 -->
+        <package android:name="com.xiaomi.aiengine" />
+        <package android:name="com.miui.voiceassist" />
+        <package android:name="com.samsung.SMT" />                 <!-- Samsung TTS -->
+        <package android:name="com.samsung.android.svoiceime" />
+        <package android:name="com.huawei.hiai.tts" />             <!-- 华为 HiTTS -->
+        <package android:name="com.huawei.voiceservice" />
+        <package android:name="com.oppo.tts" />
+        <package android:name="com.vivo.tts" />
+        <package android:name="com.baidu.tts" />                   <!-- 百度语音 -->
+        <package android:name="com.baidu.duersdk.opensdk" />
+        <package android:name="com.tencent.tts" />                 <!-- 腾讯 TTS -->
+        <package android:name="com.google.android.marvin.talkback" /> <!-- TalkBack 内置引擎 -->
+        <package android:name="com.google.android.accessibility.talkback" />
+        <package android:name="com.google.android.as" />
+        <package android:name="com.google.android.apps.accessibility.auditor" />
+        <package android:name="com.mediatek.tts" />
+        <package android:name="com.oneplus.tts" />
+        <package android:name="com.bbk.tts" />
+        <package android:name="com.nuance.tts" />
+        <package android:name="com.ivona.tts" />
+        <package android:name="com.cereproc.cerevoice.tts" />
+        <package android:name="com.acapela.tts" />
+        <package android:name="com.amazon.tts" />
+        <package android:name="com.estrongs.android.pop" />
+        <package android:name="com.reader.tts" />
+        <package android:name="com.duokan.reader" />
+        <package android:name="com.chaozh.iReaderFree" />
+        <package android:name="com.zhangyue.iReader" />
+    </queries>
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|density|uiMode|locale|fontScale"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

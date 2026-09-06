@@ -1,0 +1,10 @@
+const list = await (await fetch('http://127.0.0.1:9222/json/list')).json();
+const t = list.find(x => x.type === 'page' && /appassets/.test(x.url || ''));
+const ws = new WebSocket(t.webSocketDebuggerUrl);
+let seq = 0; const pend = new Map();
+ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } };
+const send = (method, params) => new Promise((res, rej) => { const id = ++seq; pend.set(id, m => m.error ? rej(new Error(m.error.message)) : res(m.result)); ws.send(JSON.stringify({ id, method, params: params || {} })); });
+await new Promise(r => ws.onopen = r);
+const r = await send('Runtime.evaluate', { expression: `NovelBridge.exportProgress(); 'called'`, returnByValue: true });
+console.log(r.result.value);
+ws.close(); process.exit(0);
