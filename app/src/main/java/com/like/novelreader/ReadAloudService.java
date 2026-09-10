@@ -56,8 +56,18 @@ public final class ReadAloudService extends Service {
     public static final String ACTION_STOP = "com.like.novelreader.readaloud.STOP";
     public static final String EXTRA_TITLE = "title";
 
-    /** 待执行的命令：服务起来时 JS 可能还没就绪，重试直到送达 */
+    /**
+     * 朗读状态持久化（供 {@link MediaButtonReceiver} 在会话缺席时判断该不该响应耳机键）。
+     * 值只取下面两个状态常量，不存命令名——{@link #CMD_TOGGLE} 这类没有确定含义的命令
+     * 一旦落盘，"当前是否暂停"就丢了。
+     */
     private static final String PENDING_KEY = "novelreader.pendingCmd";
+    /** 正在朗读 */
+    static final String STATE_READING = "reading";
+    /** 已暂停（位置保留，可续读） */
+    static final String STATE_PAUSED = "paused";
+    /** 已结束（停止/退出），耳机键不再响应 */
+    static final String STATE_IDLE = "idle";
     private static final String PENDING_AT = "novelreader.pendingAtCmd";
     private static final long PENDING_TTL_MS = 20000L;
 
@@ -115,7 +125,7 @@ public final class ReadAloudService extends Service {
             reading = !"idle".equals(state);
             // 把 JS 确认过的状态落盘：会话缺席时 MediaButtonReceiver 靠它判断
             // 该不该用耳机键把朗读拉起来
-            writePending(reading ? CMD_PLAY : CMD_PAUSE);
+            writePending(reading ? STATE_READING : STATE_PAUSED);
         }
 
         long timerLeftMs = intent.getLongExtra("timerLeftMs", -1L);
@@ -124,10 +134,9 @@ public final class ReadAloudService extends Service {
 
         acquireWakeLock();
         if (!wasReading && reading) requestFocus();   // 起读/续读才抢焦点
-        // 静音音轨：让本应用成为系统认定的"正在播放音频的应用"，耳机按键与锁屏卡片
-        // 才会路由到本会话（详见 SilentAudioKeepAlive）。暂停期间也必须保持——一旦停掉，
-        // 系统立刻把本应用移出播放名单，再按耳机键就没人接了（用户会以为"按了没反应"，
-        // 也就无法从耳机恢复朗读）。真正的收尾在 onDestroy。
+        // 静音音轨：让本应用留在系统的"最近播放音频的应用"名单里，耳机按键与锁屏卡片
+        // 才会路由到本会话（详见 SilentAudioKeepAlive）。整个朗读会话期间一直播放，
+        // 暂停也不停——一旦退出名单，蓝牙耳机的下一次单击就没着落。
         silentAudio.start();
         startForegroundInternal(buildNotification());
         applyState();
@@ -229,6 +238,10 @@ public final class ReadAloudService extends Service {
                             onCmd(CMD_TOGGLE);
                             return true;
                         case KeyEvent.KEYCODE_MEDIA_PLAY:
+                            // 蓝牙耳机在"已暂停"时会报 PLAY 而不是 PLAY_PAUSE。
+                            // 此时若丢掉会话(暂停即停播)或把它当"切换"，下一次单击就会
+                            // 没有着落——真机反馈的"能暂停、再按不继续"正是这么来的。
+                            // 所以播放键按"续读"处理：JS 侧有位置就接着读，没有就重开。
                             onCmd(CMD_PLAY);
                             return true;
                         case KeyEvent.KEYCODE_MEDIA_PAUSE:
@@ -267,7 +280,7 @@ public final class ReadAloudService extends Service {
         @Override public void onReceive(Context context, Intent intent) {
             if (!AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) return;
             if (!reading) return;
-            writePending(CMD_PAUSE);
+            writePending(STATE_PAUSED);
             sendCommand("pause");
         }
     };
@@ -331,7 +344,7 @@ public final class ReadAloudService extends Service {
                             // 短暂失焦(导航播报等)由引擎混音处理；永久失焦才暂停并放手
                             if (change == AudioManager.AUDIOFOCUS_LOSS) {
                                 abandonFocus();
-                                writePending(CMD_PAUSE);
+                                writePending(STATE_PAUSED);
                                 sendCommand(CMD_PAUSE);
                             }
                         })
@@ -350,12 +363,13 @@ public final class ReadAloudService extends Service {
     // ---------------- 命令通路(通知/耳机 → JS) ----------------
 
     /**
-     * 记下"用户最近一次操作"。除了给自己判断耳机播放键的语义(暂停 vs 续读)，
-     * 也供 {@link MediaButtonReceiver} 在会话缺席时判断该不该拉起重启朗读。
+     * 记下朗读状态，供 {@link MediaButtonReceiver} 在会话缺席(用户已经停止)时
+     * 判断该不该响应耳机键。只写 {@link #STATE_READING}/{@link #STATE_PAUSED}/
+     * {@link #STATE_IDLE}——写命令名会让"当前是否暂停"这个信息丢失。
      */
-    private void writePending(String cmd) {
+    private void writePending(String state) {
         getSharedPreferences("pending", MODE_PRIVATE).edit()
-                .putString(PENDING_KEY, cmd)
+                .putString(PENDING_KEY, state)
                 .putLong(PENDING_AT, System.currentTimeMillis()).apply();
     }
 
@@ -464,9 +478,19 @@ public final class ReadAloudService extends Service {
 
     /** 供 MediaButtonReceiver 在会话缺席时兜底调用 */
     public static void start(Context ctx) {
+        start(ctx, null);
+    }
+
+    /**
+     * 拉起前台服务。state 非空时同时刷新卡片状态（"reading"/"paused"）；
+     * 传 null 表示只保活、不改状态——状态一律以 JS 回调过来的为准，
+     * 在原生侧另存一份必然会与通知卡片携带的旧值打架。
+     */
+    public static void start(Context ctx, String state) {
         try {
             Intent i = new Intent(ctx, ReadAloudService.class);
             i.setAction(ACTION_START);
+            if (state != null) i.putExtra("state", state);
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i);
             else ctx.startService(i);
         } catch (Throwable ignored) {}

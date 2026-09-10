@@ -669,6 +669,7 @@ public final class Bridge {
         MainActivity.onCommandAcked(cmd);
     }
 
+
     /** 朗读停止/结束时调用：关闭前台服务 */
     @JavascriptInterface
     public void ttsReadStopped() {

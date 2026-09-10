@@ -14,11 +14,14 @@ import android.media.AudioTrack;
  * 自己持有一条循环播放、音量为 0 的音轨后，本应用的 UID 进入该名单，媒体按键
  * 与锁屏卡片的"当前媒体应用"才会落到我们头上。
  *
+ * <p>还有一层：蓝牙耳机靠"当前有没有音频在播"决定下一次按键上报
+ * KEYCODE_MEDIA_PLAY 还是 PLAY_PAUSE。朗读暂停时 TTS 停止出声，若这时把音轨也停掉，
+ * 系统立刻认为本应用不再播放，下一次单击就没了着落（真机现象：能暂停、再按不继续）。
+ * 所以它必须"整个朗读会话期间一直播放"——暂停也不例外。
+ *
  * <p>实现为 MODE_STATIC + 循环点，不需要任何回放线程，CPU 开销可忽略。
  * 音频数据取一个极小的非零值：全 0 在个别 ROM 上会被当成"未播放"。
- *
- * <p>暂停朗读时<b>不要</b>停掉它：停了就不再是"播放中的应用"，耳机按键随即失联，
- * 用户没法用耳机把朗读续上。把音量设为 0，人耳听不到，系统仍认我们在播。
+ * 音量置 0：人耳听不到，但系统仍认为在播（判定只看 play state，不看音量）。
  */
 final class SilentAudioKeepAlive {
 
@@ -58,6 +61,7 @@ final class SilentAudioKeepAlive {
             if (t != null) { try { t.release(); } catch (Throwable ignored) {} }
         }
     }
+
 
     /** 朗读结束：释放音轨，本应用不再占用"正在播放"身份 */
     synchronized void stop() {

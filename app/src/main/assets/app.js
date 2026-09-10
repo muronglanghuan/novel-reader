@@ -1033,7 +1033,9 @@ function pauseTts() {
   B.ttsPause();
   B.ttsSyncKeepScreen(false);      // 暂停不该继续点着屏幕
   setTtsUi();
-  syncReadState();                 // 卡片切到「继续」
+  // 静音音轨由前台服务全程持有（见 SilentAudioKeepAlive）：暂停也不能让它停，
+  // 否则本应用退出"正在播放"名单，蓝牙耳机的下一次单击就没着落
+  syncReadState();
 }
 
 /** 继续：不重放已读过的整段，从当前这一句重读 */

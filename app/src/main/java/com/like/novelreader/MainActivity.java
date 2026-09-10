@@ -30,6 +30,7 @@ public final class MainActivity extends Activity implements Bridge.Host {
 
     /** 命令重试：WebView 从冷启动到可执行 JS 有几百毫秒空窗，必须重投 */
     private static final int CMD_RETRIES = 25;
+    private static final int CMD_COLD_RETRIES = 60;   // 冷启动：约 7 秒
     private static final long CMD_RETRY_MS = 120L;
 
     private static WebView webView;          // 静态引用：供命令投递使用（Activity 销毁时置空）
@@ -64,7 +65,9 @@ public final class MainActivity extends Activity implements Bridge.Host {
             pendingSeq = ++cmdSeq;
             seq = pendingSeq;
         }
-        for (int n = 0; n < CMD_RETRIES; n++) {
+        // WebView 不存在（进程刚被拉起）时给足冷启动时间：首帧要几秒才可执行 JS
+        int retries = webView == null ? CMD_COLD_RETRIES : CMD_RETRIES;
+        for (int n = 0; n < retries; n++) {
             if (n == 0) { pushCommand(cmd, seq); continue; }
             mainHandler.postDelayed(() -> pushCommand(cmd, seq), n * CMD_RETRY_MS);
         }
