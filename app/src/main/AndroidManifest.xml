@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 耳机/蓝牙耳机按键：单击暂停继续、双击下一章（媒体会话优先接收） -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
 
     <!-- Android 11+（targetSdk>=30）包可见性：
          必须声明 TTS 引擎 intent，否则 getEngines() 恒为空、
@@ -83,6 +85,15 @@
             android:name=".ReadAloudService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- 耳机/蓝牙媒体按键：无媒体会话在播时，系统到此兜底并拉起前台服务 -->
+        <receiver
+            android:name=".MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
 
         <!-- 自更新安装 APK 的 FileProvider -->
         <provider

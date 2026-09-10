@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
@@ -606,6 +607,15 @@ public final class Bridge {
         // no-op（见 TtsEngine.pause 说明）
     }
 
+    /**
+     * 朗读过程中屏幕常亮：由 JS 维护（后台暂停/停止时须主动撤销，
+     * 否则息屏时窗口锁会把屏幕一直点亮）。恢复朗读时按当前状态重新施加。
+     */
+    @JavascriptInterface
+    public void ttsSyncKeepScreen(boolean on) {
+        post(() -> host.setKeepScreenOn(on));
+    }
+
     @JavascriptInterface
     public void ttsSetRate(double rate) {
         ensureTts();
@@ -614,9 +624,17 @@ public final class Bridge {
 
     // ---------------- 朗读前台服务(后台/息屏保活) ----------------
 
-    /** 朗读开始时调用：拉起前台服务；title 变化时重复调用以刷新通知 */
+    /**
+     * 朗读状态变化时调用：拉起/刷新前台服务与锁屏播放卡片。
+     *
+     * @param title       书名（卡片副标题）
+     * @param chapter     当前章节名（卡片标题）——跨章时重复调用即刷新
+     * @param state       "reading" 朗读中 / "paused" 已暂停（卡片图标随此切换）
+     * @param timerLeftMs 定时停止剩余毫秒；&lt;=0 表示未设置
+     */
     @JavascriptInterface
-    public void ttsReadStarted(final String title) {
+    public void ttsReadStarted(final String title, final String chapter,
+                               final String state, final double timerLeftMs) {
         post(() -> {
             // Android 13+ 通知权限(拒绝也不影响前台服务保活, 只影响通知展示)
             if (android.os.Build.VERSION.SDK_INT >= 33) {
@@ -632,7 +650,10 @@ public final class Bridge {
                 Intent i = new Intent(appCtx, ReadAloudService.class);
                 i.setAction(ReadAloudService.ACTION_START);
                 i.putExtra(ReadAloudService.EXTRA_TITLE,
-                        title == null ? "正在朗读…" : title);
+                        title == null || title.isEmpty() ? "正在朗读…" : title);
+                i.putExtra("chapter", chapter == null ? "" : chapter);
+                i.putExtra("state", state == null ? "reading" : state);
+                i.putExtra("timerLeftMs", (long) timerLeftMs);
                 if (android.os.Build.VERSION.SDK_INT >= 26) {
                     appCtx.startForegroundService(i);
                 } else {
@@ -640,6 +661,12 @@ public final class Bridge {
                 }
             } catch (Throwable ignored) {}
         });
+    }
+
+    /** JS 已执行完一条锁屏/耳机控制命令：通知原生停止重投 */
+    @JavascriptInterface
+    public void controlAck(final String cmd) {
+        MainActivity.onCommandAcked(cmd);
     }
 
     /** 朗读停止/结束时调用：关闭前台服务 */

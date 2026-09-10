@@ -162,8 +162,14 @@ const B = {
   ttsResume: () => (isNative ? NovelBridge.ttsResume() : Dev.ttsResume()),
   ttsSetRate: r => (isNative ? NovelBridge.ttsSetRate(r) : Dev.ttsSetRate(r)),
   keepScreenOn: b => (isNative ? NovelBridge.keepScreenOn(b) : Dev.keepScreenOn(b)),
-  ttsReadStarted: title => { if (isNative) { try { NovelBridge.ttsReadStarted(title || ''); } catch (e) {} } },
+  // 朗读状态同步给原生：书名/章节名/读或暂停/定时剩余 → 锁屏卡片与通知栏
+  ttsReadStarted: (title, chapter, state, timerLeftMs) => {
+    if (isNative) { try { NovelBridge.ttsReadStarted(title || '', chapter || '', state || 'reading', +(timerLeftMs || 0)); } catch (e) {} }
+  },
   ttsReadStopped: () => { if (isNative) { try { NovelBridge.ttsReadStopped(); } catch (e) {} } },
+  // 锁屏/耳机控制命令已执行完毕，通知原生别再重投
+  controlAck: cmd => { if (isNative) { try { NovelBridge.controlAck(cmd); } catch (e) {} } },
+  ttsSyncKeepScreen: on => { if (isNative) { try { NovelBridge.ttsSyncKeepScreen(!!on); } catch (e) {} } },
   toast: m => (isNative ? NovelBridge.toast(m) : Dev.toast(m)),
 };
 
@@ -610,6 +616,67 @@ function exitReader() {
   refreshShelf();
 }
 
+/* ---------------- 锁屏卡片 / 通知栏 / 耳机按键命令入口 ----------------
+ * 原生只发固定几个命令，所有解释与执行都在这里，保证与 App 内按钮行为一致。
+ * 执行完必须回执 controlAck，否则原生会一直重投（冷启动时 WebView 有几百毫秒空窗）。 */
+let lastCmdSeq = 0;
+window.onControlCommand = function (cmd, seq) {
+  // 序号去重：原生的重试投递可能短于"执行+回执"的往返，同一条命令会到两次；
+  // 重复的仍要回执（否则原生继续重投），但不再执行。
+  if (typeof seq === 'number' && seq > 0) {
+    if (seq <= lastCmdSeq) { B.controlAck(cmd); return true; }
+    lastCmdSeq = seq;
+  }
+  try {
+    switch (cmd) {
+      case 'play':
+        // 有保留位置(暂停中)→从这里继续；否则按耳机「播放」的语义重开朗读
+        if (Tts.playing && Tts.paused) resumeTts();
+        else if (!Tts.playing) startListenFromPage();
+        break;
+      case 'toggle':
+        if (Tts.playing && !Tts.paused) pauseTts();
+        else if (Tts.playing && Tts.paused) resumeTts();
+        else startListenFromPage();
+        break;
+      case 'pause':
+        if (Tts.playing) pauseTts();
+        break;
+      case 'stop':
+        if (Tts.playing) stopTts(false);
+        break;
+      case 'next':
+        if (Tts.playing) ttsJumpChapter(1);
+        break;
+      case 'prev':
+        if (Tts.playing) ttsJumpChapter(-1);
+        break;
+    }
+  } catch (e) { /* 命令失败不应打断朗读 */ }
+  B.controlAck(cmd);
+  return true;
+};
+
+/* 朗读中切章：从目标章第一段继续读（位置跟着走，通知标题同步刷新） */
+async function ttsJumpChapter(d) {
+  if (!R.book || !Tts.playing) return;
+  const n = R.curCh + d;
+  if (n < 0 || n >= R.book.total) { B.toast(d < 0 ? '已是第一章' : '已是最后一章'); return; }
+  const paras = await chapterParas(n).catch(() => null);
+  if (!paras || !paras.length) { B.toast('章节尚未就绪'); return; }
+  if (R.curCh !== n) { R.curCh = n; syncChromeTitle(); ensureWindow(n); }
+  R.body.scrollTop = Math.max(0, paras[0].offsetTop - PAD_TOP);
+  Tts.gen++;                        // 作废旧回调，从新章重开
+  if (Tts.watchdog) { clearTimeout(Tts.watchdog); Tts.watchdog = 0; }
+  Tts.pos = { ch: n, parEl: paras[0], sentIdx: 0 };
+  Tts.paused = false;
+  Tts.stoppedByUser = false;
+  setTtsUi();
+  highlightParagraph(paras[0], 0);
+  syncReadState();                  // 卡片章节名跟着换
+  speakCurrent(Tts.gen);
+}
+
 /* 系统返回键：优先交给面板/工具条处理 */
 window.__onAndroidBack = () => {
   if (!$('dlg-delete').hidden) { closeDeleteDialog(); return true; }
@@ -666,7 +733,34 @@ const Tts = {
   timerAt: 0, timerMin: 0,        // 定时停止(毫秒时间戳/分钟)
   pendingTimerAt: 0, pendingTimerMin: 0,
   ttsOk: false, reason: '',
+  stoppedByUser: false,      // 用户主动停止(清掉播放位置)：锁屏「播放」应从首段重来
 };
+
+/* ---------------- 朗读状态回传原生(锁屏卡片/通知栏/耳机) ---------------- */
+
+const TTS_TICK_MS = 30000;     // 卡片计时是分钟粒度，30s 一次足够
+let ttsTickTimer = 0;
+
+function ttsTimerLeftMs() {
+  return Tts.timerAt ? Math.max(0, Tts.timerAt - Date.now()) : 0;
+}
+function ttsChName() {
+  if (!Tts.pos || !R.book || !R.book.chapters || !R.book.chapters[Tts.pos.ch]) return '';
+  return String(R.book.chapters[Tts.pos.ch].t || '');
+}
+/** 把书名/章节/读或暂停/定时剩余推给原生，驱动锁屏卡片与通知栏 */
+function syncReadState() {
+  if (!Tts.playing || !R.book) { stopReadTick(); return; }
+  B.ttsReadStarted(R.book.title, ttsChName(), Tts.paused ? 'paused' : 'reading', ttsTimerLeftMs());
+  startReadTick();
+}
+function startReadTick() {
+  if (!isNative || ttsTickTimer) return;
+  ttsTickTimer = setInterval(syncReadState, TTS_TICK_MS);   // 倒计时刷新(分钟粒度)
+}
+function stopReadTick() {
+  if (ttsTickTimer) { clearInterval(ttsTickTimer); ttsTickTimer = 0; }
+}
 
 async function chapterParas(ch) {
   let rec = R.loaded.get(ch);
@@ -763,6 +857,7 @@ async function listenFrom(target) {
     R.body.scrollTop = Math.max(0, parEl.offsetTop - PAD_TOP);
   }
   Tts.playing = true; Tts.paused = false;
+  Tts.stoppedByUser = false;
   Tts.gen++;
   const gen = Tts.gen;
   Tts.pos = { ch: target.ch, parEl, sentIdx: 0 };
@@ -778,16 +873,17 @@ async function listenFrom(target) {
   speakCurrent(gen);
 }
 
-/* 刷新通知栏章节标题(前台朗读服务) */
+/* 刷新通知栏/锁屏卡片(前台朗读服务) */
 function readNotifyTitle() {
-  if (!Tts.playing || !Tts.pos || !R.book || !R.book.chapters || !R.book.chapters[Tts.pos.ch]) return;
-  B.ttsReadStarted(String(R.book.chapters[Tts.pos.ch].t));
+  syncReadState();
 }
 
 function setTtsUi() {
   const b = $('btn-tts-play');
-  // 两态：开始朗读 ↔ 停止（停止/暂停合并）
-  b.textContent = Tts.playing ? '停止' : '开始朗读';
+  // 三态：开始朗读 ↔ 暂停(暂停中则显示继续) / 停止
+  b.textContent = !Tts.playing ? '开始朗读' : (Tts.paused ? '继续' : '暂停');
+  const st = $('btn-tts-stop');
+  if (st) st.hidden = !Tts.playing;
   const tm = $('btn-timer');
   if (Tts.timerAt) {
     tm.textContent = '定时 ' + (Tts.timerMin || 1) + ' 分钟';
@@ -798,8 +894,8 @@ function setTtsUi() {
   }
   $('tts-controls').hidden = !Tts.playing;
   if (Tts.playing) {
-    $('tts-status').textContent = '朗读中'
-        + (Tts.pos && R.book ? ' · ' + R.book.chapters[Tts.pos.ch].t : '');
+    $('tts-status').textContent = (Tts.paused ? '已暂停' : '朗读中')
+        + (Tts.pos && R.book && R.book.chapters[Tts.pos.ch] ? ' · ' + R.book.chapters[Tts.pos.ch].t : '');
     const rate = $('tts-rate');
     rate.value = Settings.cur.rate;
     $('tts-rate-val').textContent = Settings.cur.rate.toFixed(2) + '×';
@@ -809,8 +905,12 @@ function setTtsUi() {
 function speakCurrent(gen) {
   if (gen !== Tts.gen || !Tts.playing || Tts.paused) return;
   if (Tts.timerAt && Date.now() >= Tts.timerAt) {
-    B.toast('定时朗读结束');
-    stopTts(false);
+    // 定时到点按"暂停"收尾而不是彻底停止：位置保留，锁屏卡片继续挂着
+    // （与音乐/视频类 App 一致），用户在锁屏上一点就能接着听。
+    Tts.timerAt = 0; Tts.timerMin = 0;
+    pauseTts();
+    B.toast('定时朗读结束（已暂停，可从锁屏继续）');
+    setTtsUi();
     return;
   }
   const pos = Tts.pos;
@@ -912,27 +1012,62 @@ function stopTts(keepUi) {
   if (Tts.watchdog) clearTimeout(Tts.watchdog);
   Tts.playing = false; Tts.paused = false;
   Tts.pos = null;
+  Tts.stoppedByUser = true;      // 播放位置已丢：锁屏「播放」应从当前页首段重来
   // 只清除已生效的定时；pending(刚设定、等待开读兑现)须保留给 listenFrom
   Tts.timerAt = 0; Tts.timerMin = 0;
+  stopReadTick();
   B.ttsStop();
-  B.ttsReadStopped();      // 朗读结束: 关闭前台服务
-  B.keepScreenOn(Auto.on);
+  B.ttsReadStopped();      // 朗读结束: 关闭前台服务与锁屏卡片
+  B.ttsSyncKeepScreen(Auto.on);
   clearHighlights();
   if (!keepUi) setTtsUi();
+}
+
+/** 暂停：原生 stop 打断当前句，JS 冻结推进并保留位置；卡片/服务/唤醒锁保持 */
+function pauseTts() {
+  if (!Tts.playing || Tts.paused) return;
+  Tts.gen++;                       // 作废在途的 done/watchdog 回调
+  if (Tts.watchdog) { clearTimeout(Tts.watchdog); Tts.watchdog = 0; }
+  Tts.paused = true;
+  Tts.stoppedByUser = false;
+  B.ttsPause();
+  B.ttsSyncKeepScreen(false);      // 暂停不该继续点着屏幕
+  setTtsUi();
+  syncReadState();                 // 卡片切到「继续」
+}
+
+/** 继续：不重放已读过的整段，从当前这一句重读 */
+function resumeTts() {
+  if (!Tts.playing || !Tts.paused) return;
+  if (R.curCh !== Tts.pos.ch) { R.curCh = Tts.pos.ch; syncChromeTitle(); ensureWindow(Tts.pos.ch); }
+  Tts.gen++;
+  const gen = Tts.gen;
+  Tts.paused = false;
+  Tts.stoppedByUser = false;
+  B.ttsSyncKeepScreen(true);
+  setTtsUi();
+  syncReadState();                 // 卡片切回「暂停」
+  speakCurrent(gen);
+}
+
+/** 从当前页第一个完整段落开始朗读（无播放位置时的起点） */
+function startListenFromPage() {
+  const t = alignToPageStart({ listen: true, smooth: false });
+  if (!t) {
+    const ps = parasOf(R.curCh);
+    if (ps && ps.length) listenFrom({ ch: R.curCh, p: ps[0] });
+    else B.toast('暂无可朗读内容');
+  }
 }
 
 function toggleTtsPlay() {
   if (!R.book) return;
   if (!Tts.playing) {
-    // 核心需求：永远从“当前页第一个完整段落”段首开始朗读
-    const t = alignToPageStart({ listen: true, smooth: false });
-    if (!t) {
-      const ps = parasOf(R.curCh);
-      if (ps && ps.length) listenFrom({ ch: R.curCh, p: ps[0] });
-      else B.toast('暂无可朗读内容');
-    }
+    startListenFromPage();
+  } else if (Tts.paused) {
+    resumeTts();      // 继续
   } else {
-    stopTts(false);   // 播放中再点 = 停止
+    pauseTts();       // 暂停（位置保留，可继续）
   }
 }
 
@@ -1006,6 +1141,7 @@ function bindUI() {
   $('scrim').addEventListener('click', () => closeDrawers());
 
   $('btn-tts-play').addEventListener('click', toggleTtsPlay);
+  $('btn-tts-stop').addEventListener('click', () => { if (Tts.playing) stopTts(false); });
   $('btn-auto').addEventListener('click', toggleAuto);
   $('btn-tts-settings').addEventListener('click', () => {
     B.openTtsSettings();
@@ -1016,7 +1152,7 @@ function bindUI() {
     const box = $('dlg-timer-options');
     box.textContent = '';
     const opts = [];
-    if (Tts.timerAt) opts.push(['取消定时', () => { Tts.timerAt = 0; Tts.timerMin = 0; closeTimerDialog(); setTtsUi(); B.toast('已取消定时停止'); }]);
+    if (Tts.timerAt) opts.push(['取消定时', () => { Tts.timerAt = 0; Tts.timerMin = 0; closeTimerDialog(); setTtsUi(); syncReadState(); B.toast('已取消定时停止'); }]);
     [15, 30, 45, 60].forEach(m => opts.push([m + ' 分钟后停止', () => armTimer(m)]));
     opts.forEach(([label, fn]) => {
       const b = document.createElement('button');
@@ -1040,6 +1176,7 @@ function bindUI() {
       Tts.timerAt = at;
       Tts.timerMin = m;
       setTtsUi();
+      syncReadState();      // 卡片/通知栏显示剩余时间
     }
   };
   $('btn-timer').addEventListener('click', openTimerDialog);

@@ -1,9 +1,12 @@
 package com.like.novelreader;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebResourceRequest;
@@ -14,30 +17,81 @@ import android.webkit.WebViewClient;
 
 import androidx.webkit.WebViewAssetLoader;
 
+import org.json.JSONObject;
+
 /**
  * 唯一 Activity：全屏 WebView 承载整站 UI，本地资源经 WebViewAssetLoader 以
  * https://appassets.androidplatform.net/assets/ 提供（避免 file:// 限制）。
  */
 public final class MainActivity extends Activity implements Bridge.Host {
 
-    public static final String ACTION_STOP_READING = "com.like.novelreader.STOP_READING";
-
     private static final int REQ_IMPORT = 4242;
     private static final int REQ_RESTORE = 4243;
+
+    /** 命令重试：WebView 从冷启动到可执行 JS 有几百毫秒空窗，必须重投 */
+    private static final int CMD_RETRIES = 25;
+    private static final long CMD_RETRY_MS = 120L;
+
+    private static WebView webView;          // 静态引用：供命令投递使用（Activity 销毁时置空）
+    private static String pendingCmd = null;
+    private static long pendingCmdAt = 0L;
+    private static long pendingSeq = 0L;      // 同一条命令的所有重投共用一个序号
+    private static long cmdSeq = 0L;
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private WebView wv;
     private Bridge bridge;
     private WebViewAssetLoader assetLoader;
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        // 通知栏「停止朗读」/ 点通知回 App
-        if (intent != null && ACTION_STOP_READING.equals(intent.getAction()) && wv != null) {
-            try {
-                wv.evaluateJavascript("window.stopTts&&stopTts(false);", null);
-            } catch (Throwable ignored) {}
+    /** WebView 是否还在（进程未被回收）：命令投递前据此决定要不要拉起界面 */
+    public static boolean hasWebView() {
+        return webView != null;
+    }
+
+    /**
+     * 把一条控制命令投给 WebView，直到 JS 侧执行完毕（JS 执行后调
+     * {@link Bridge#controlAck} 回执）或重试次数用尽。持锁是必要的：通知按钮
+     * 与耳机按键可能同时到达，两条命令不能交叉重投。
+     */
+    public static void deliverCommand(final Context ctx, final String cmd) {
+        if (cmd == null || cmd.isEmpty()) return;
+        final long seq;
+        synchronized (MainActivity.class) {
+            // 新命令总是覆盖旧的：媒体控制以最后一次操作为准，
+            // 若沿用"仅在上一条已确认时才接受"，用户在 120ms 内连按两次就会丢键
+            pendingCmd = cmd;
+            pendingCmdAt = System.currentTimeMillis();
+            pendingSeq = ++cmdSeq;
+            seq = pendingSeq;
         }
+        for (int n = 0; n < CMD_RETRIES; n++) {
+            if (n == 0) { pushCommand(cmd, seq); continue; }
+            mainHandler.postDelayed(() -> pushCommand(cmd, seq), n * CMD_RETRY_MS);
+        }
+    }
+
+    /** 命令已被 JS 执行（Bridge.controlAck）：停掉后续重投 */
+    public static void onCommandAcked(String cmd) {
+        synchronized (MainActivity.class) {
+            if (cmd != null && cmd.equals(pendingCmd)) pendingCmd = null;
+        }
+    }
+
+    /**
+     * 投递一次。带序号是必需的：重试间隔 120ms 可能短于"JS 执行+回执"的往返，
+     * 同一条命令会被投两次 —— 表现为按一次"下一章"跳两章、按一次暂停变继续。
+     * JS 侧按序号去重（同序号只执行一次，重复的仍回执），这里只负责带上序号。
+     */
+    private static void pushCommand(final String cmd, final long seq) {
+        synchronized (MainActivity.class) {
+            if (!cmd.equals(pendingCmd)) return;      // 已被执行/被新命令覆盖 → 不再重投
+        }
+        final WebView v = webView;
+        if (v == null) return;
+        try {
+            v.evaluateJavascript("window.onControlCommand&&onControlCommand("
+                    + JSONObject.quote(cmd) + "," + seq + ");", null);
+        } catch (Throwable ignored) {}
     }
 
     @Override
@@ -50,13 +104,16 @@ public final class MainActivity extends Activity implements Bridge.Host {
         }
 
         wv = new WebView(this);
+        webView = wv;                 // 供锁屏卡片/耳机按键命令投递
         setContentView(wv);
 
-        // 朗读链跑在 WebView 渲染进程里：切后台/息屏时避免渲染进程被降级/冻结
+        // 朗读链跑在 WebView 渲染进程里：切后台/息屏时避免渲染进程被降级/冻结。
+        // 第二个参数必须是 false —— 传 true 表示“WebView 不可见时按 WAIVED 处理”，
+        // 恰好抵消 IMPORTANT，息屏/切后台后渲染进程立刻变成 OOM 候选被回收(朗读悄悄停止)。
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             try {
                 wv.setRendererPriorityPolicy(
-                        android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, true);
+                        android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, false);
             } catch (Throwable ignored) {}
         }
 
@@ -200,6 +257,7 @@ public final class MainActivity extends Activity implements Bridge.Host {
 
     @Override
     protected void onDestroy() {
+        webView = null;
         stopService(new Intent(this, ReadAloudService.class));
         if (bridge != null) {
             bridge.destroy();

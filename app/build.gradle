@@ -17,8 +17,8 @@ android {
         applicationId "com.like.novelreader"
         minSdk 24
         targetSdk 34
-        versionCode 12
-        versionName "1.11"
+        versionCode 13
+        versionName "1.12"
     }
 
     signingConfigs {
@@ -55,4 +55,6 @@ android {
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.9.0'
+    // 锁屏/通知栏媒体卡片（NotificationCompat.MediaStyle + MediaSessionCompat）
+    implementation 'androidx.media:media:1.7.0'
 }
