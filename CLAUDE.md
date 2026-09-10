@@ -12,22 +12,40 @@
 
 ## 架构要点(改代码前必读)
 - `MainActivity.java`: 唯一 Activity; **不要调用 wv.onPause()**(冻结 JS 定时器 → 朗读链停);
-  已设 `setRendererPriorityPolicy(RENDERER_PRIORITY_IMPORTANT)`(后台/息屏保活)
+  **`setRendererPriorityPolicy(RENDERER_PRIORITY_IMPORTANT, false)` 第二个参数必须是 false** ——
+  传 true 表示"WebView 不可见时按 WAIVED 处理", 恰好抵消 IMPORTANT, 息屏/后台渲染进程
+  仍会被回收(这就是 v1.11 "锁屏一会就停"的根因)
 - 朗读链路: JS 逐句驱动 —— speakCurrent → 引擎 onDone(原生→JS 事件) → 下一句;
   JS 是唯一推进者。跨章/推进逻辑全在 `app.js`(`advanceParagraph`/`listenFrom`)
 - **已知深坑(勿复辟)**: `chapterParas(ch)` 返回**段落数组**不是章节记录, 别取 `.paras`;
   prune 的滚动补偿已被移除, 视觉稳定靠浏览器原生 scroll anchoring(勿加回手写 scrollTop 补偿)
-- `ReadAloudService`: 朗读期间前台服务 + PARTIAL_WAKE_LOCK(息屏持续朗读的关键);
-  JS 通过 `B.ttsReadStarted(章节名)`/`B.ttsReadStopped()` 启停; 通知栏"停止朗读"→ MainActivity `ACTION_STOP_READING` → evaluateJavascript stopTts
+- `ReadAloudService`: 朗读期间前台服务 + PARTIAL_WAKE_LOCK + **静音音轨** + 媒体会话;
+  JS 通过 `B.ttsReadStarted(书名,章节名,state,timerLeftMs)`/`B.ttsReadStopped()` 启停/刷新
+- **媒体按键/锁屏卡片(易踩坑)**: ①Javadoc 般的坑——`MediaSessionCompat.Callback.onMediaButtonEvent`
+  在 SDK>=27 直接 return false 且平台默认也 return false, **必须自己翻译 KeyEvent**, 否则按键
+  已派发到会话却毫无反应; ②系统只把按键派给"最近播放过音频的 UID"(AudioPlayerStateMonitor),
+  而 TTS 是引擎进程出声, 故必须有 `SilentAudioKeepAlive` 静音音轨(暂停期间也不能停, 停了
+  耳机键就失联); ③所有控制统一走 `MainActivity.deliverCommand` 投给
+  `window.onControlCommand(cmd, seq)`, **必须带序号**(重试投递会与回执赛跑 → 重复执行);
+  ④`sendCommand` 在 WebView 存活时不拉起界面, 否则锁屏点暂停会把 App 拽到前台
 - TTS 引擎可见性: manifest `<queries>`(Android 11+) 已放行 30+ 引擎包; `TtsEngine.engines()` 走 PackageManager 直查(勿改回探测实例法); init 有 8s 看门狗
-- 定时停止: JS `Tts.timerAt` + `pendingTimerAt`(待定, 在 listenFrom 成功后兑现——stopTts 不得清 pending, 否则"定时后点朗读"会失效); 到点在 speakCurrent 检查(事件驱动, 息屏有效)
+- 定时停止: JS `Tts.timerAt` + `pendingTimerAt`(待定, 在 listenFrom 成功后兑现——stopTts 不得清 pending, 否则"定时后点朗读"会失效); 到点在 speakCurrent 检查(事件驱动, 息屏有效), **到点按暂停收尾**(位置保留/卡片留着, 与音乐类 App 一致)
+- 暂停/继续: 原生 TTS 无 pause, `pauseTts()` = 原生 stop + JS `paused=true` 冻结推进(保留 `Tts.pos`), `resumeTts()` 重读**当前句**; 停止(`stopTts`)才清位置并撤前台服务
 - 自动更新: `UpdateChecker.java` 比对 GitHub latest tag 与 versionName; 6h 限频; 自动下载+FileProvider 拉起安装页
 
 ## 测试(模拟器 127.0.0.1:16384 = MuMu debug 包; emulator-5554 = release 冒烟)
 - CDP: `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`; release 包**无** WebView 调试
 - 模拟朗读: 页面内 patch `B.ttsState→{ok:true}` 与 `B.ttsSpeak→setTimeout(done)`; 页面全局 `Tts`/`R` 为模块级, 非 window 属性
 - 复现滚动/跨章问题用真实 touch 手势(CDP Input.dispatchTouchEvent), 勿用程序化 scrollTop(会与锚定竞争制造假象)
+- **CDP Input 坐标是 CSS 像素, 勿乘 devicePixelRatio**(乘了会点到别处, 表现为"命中预检通过但按钮无反应")
+- 现成脚本: `tools/cdp_lib.mjs`(连接/点击/等待) + `test_e2e.mjs`(真实点按钮) /
+  `test_buttons.mjs`(耳机键, 用 `input keyevent 85/87/88`) / `test_bg.mjs`(后台) / `test_flows.mjs`
+- **CDP 附加会保活渲染进程**, 测"息屏是否被冻结"必须断开调试连接, 再用文件心跳判断
+- 模拟器无中文 TTS 引擎: 锁屏卡片仍能出现, 但 **媒体按键会话为 null**(系统找不到"最近播放的应用"),
+  耳机键测不了 —— 用 `dumpsys media_session | grep "Media button session"` 判断;
+  真机有引擎出声时此条不适用
 - 测试书 `哇！爆率真的很高`(5.8MB/590章)在模拟器 imports; 仓库不含任何书籍(版权)
+- 往模拟器塞测试书: `adb root` 后 `adb shell "cp '/sdcard/Download/xx.txt' /data/data/com.like.novelreader/files/imports/"`(run-as 对 release 不可用)
 
 ## 边界与提醒
 - 更新通道是 GitHub(国内网络可能不通, 自动检查静默失败属预期)
